@@ -38,18 +38,27 @@ fecha_inicio, fecha_fin = st.sidebar.date_input(
 )
 
 agentes = df['Agente'].dropna().unique()
-agente_seleccionado = st.sidebar.selectbox("Selecciona un agente", agentes)
+agentes_seleccionados = st.sidebar.multiselect(
+    "Selecciona uno o varios agentes",
+    options=agentes,
+    default=list(agentes)  # por defecto selecciona todos
+)
 
-# Filtrar por agente y rango de fechas
+# Validar que se seleccionó al menos un agente
+if not agentes_seleccionados:
+    st.warning("Por favor, selecciona al menos un agente para mostrar los datos.")
+    st.stop()
+
+# Filtrar por agentes y rango de fechas
 df_filtrado = df[
-    (df['Agente'] == agente_seleccionado) &
+    (df['Agente'].isin(agentes_seleccionados)) &
     (df['Fecha'] >= fecha_inicio) &
     (df['Fecha'] <= fecha_fin)
 ]
 
 # Mostrar datos filtrados
-st.subheader(f"Datos filtrados para agente: {agente_seleccionado} del {fecha_inicio} al {fecha_fin}")
-st.dataframe(df_filtrado[['FechaHora', 'Estado', 'Motivo', 'DuraciónHoras']], use_container_width=True)
+st.subheader(f"Datos filtrados para agentes: {', '.join(agentes_seleccionados)}\nDel {fecha_inicio} al {fecha_fin}")
+st.dataframe(df_filtrado[['Agente', 'FechaHora', 'Estado', 'Motivo', 'DuraciónHoras']], use_container_width=True)
 
 # Concentrado porcentual de tiempo por Estado
 total_horas = df_filtrado['DuraciónHoras'].sum()
@@ -83,7 +92,7 @@ if total_horas > 0:
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
-    # Total de horas trabajadas por día
+    # Total de horas trabajadas por día (agregado para todos agentes seleccionados)
     st.subheader("🗓️ Total de horas trabajadas por día")
     horas_por_dia = df_filtrado.groupby('Fecha')['DuraciónHoras'].sum().reset_index()
     fig_line = px.bar(
