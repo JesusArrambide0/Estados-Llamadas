@@ -5,7 +5,7 @@ import plotly.express as px
 st.set_page_config(page_title="Análisis de Estados de Agentes", layout="wide")
 st.title("📊 Análisis de Estados de Agentes")
 
-# Cargar datos
+# Carga de datos
 archivo = "Estadosinfo.xlsx"
 df = pd.read_excel(archivo)
 
@@ -19,7 +19,7 @@ df = df.rename(columns={
     'Duration': 'Duración'
 })
 
-# Convertir columnas
+# Convertir columnas fecha y duración
 df['FechaHora'] = pd.to_datetime(df['FechaHora'])
 df['Fecha'] = df['FechaHora'].dt.date
 df['Duración'] = pd.to_timedelta(df['Duración'])
@@ -28,29 +28,28 @@ df['DuraciónHoras'] = df['Duración'].dt.total_seconds() / 3600
 # Sidebar: filtro rango fechas
 min_fecha = df['Fecha'].min()
 max_fecha = df['Fecha'].max()
-rango_fechas = st.sidebar.date_input("Selecciona rango de fechas", [min_fecha, max_fecha])
+fecha_seleccion = st.sidebar.date_input("Selecciona rango de fechas", [min_fecha, max_fecha])
 
-if len(rango_fechas) != 2:
-    st.warning("Selecciona un rango válido de dos fechas.")
+if len(fecha_seleccion) != 2:
+    st.warning("Por favor selecciona un rango válido de dos fechas.")
     st.stop()
 
-# Filtrar por fechas para definir agentes disponibles
-df_fecha = df[(df['Fecha'] >= rango_fechas[0]) & (df['Fecha'] <= rango_fechas[1])]
+# Sidebar: filtro agente (todos los agentes en el dataset, sin filtrar aún)
+lista_agentes = sorted(df['Agente'].dropna().unique())
+agente_seleccionado = st.sidebar.selectbox("Selecciona un agente", lista_agentes)
 
-# Obtener lista de agentes para el filtro (sin filtrar por agente aún)
-agentes = sorted(df['Agente'].dropna().unique())
-
-# Selector de agente (bloxdpot para que sea desplegable con búsqueda)
-agente_seleccionado = st.sidebar.selectbox("Selecciona un agente", agentes)
-
-# Filtrar por agente y fecha
-df_filtrado = df_fecha[df_fecha['Agente'] == agente_seleccionado]
+# Filtrar datos según agente y rango fechas
+df_filtrado = df[
+    (df['Agente'] == agente_seleccionado) &
+    (df['Fecha'] >= fecha_seleccion[0]) &
+    (df['Fecha'] <= fecha_seleccion[1])
+]
 
 if df_filtrado.empty:
     st.warning("No hay datos para el agente y rango de fechas seleccionados.")
     st.stop()
 
-# ----------- Resumen tiempo por estado -----------
+# Mostrar resumen por Estado
 resumen_estado = df_filtrado.groupby('Estado')['DuraciónHoras'].sum().reset_index()
 resumen_estado['Porcentaje'] = 100 * resumen_estado['DuraciónHoras'] / resumen_estado['DuraciónHoras'].sum()
 resumen_estado = resumen_estado.sort_values(by='Porcentaje', ascending=False)
@@ -67,7 +66,7 @@ fig_pie_estado = px.pie(resumen_estado, names='Estado', values='Porcentaje',
                        title='Distribución porcentual de tiempo por estado')
 st.plotly_chart(fig_pie_estado, use_container_width=True)
 
-# ----------- Resumen tiempo por motivo -----------
+# Mostrar resumen por Motivo
 resumen_motivo = df_filtrado.groupby('Motivo')['DuraciónHoras'].sum().reset_index()
 resumen_motivo = resumen_motivo.sort_values(by='DuraciónHoras', ascending=False)
 
