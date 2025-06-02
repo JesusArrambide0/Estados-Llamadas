@@ -33,7 +33,7 @@ df = df.rename(columns={
 
 # Procesamiento de fechas y duraciones
 df['FechaHora'] = pd.to_datetime(df['FechaHora'], errors='coerce')
-df = df.dropna(subset=['FechaHora'])  # eliminar registros inválidos
+df = df.dropna(subset=['FechaHora'])
 df['Fecha'] = df['FechaHora'].dt.date
 df['Hora'] = df['FechaHora'].dt.time
 
@@ -41,11 +41,12 @@ df['Duración'] = pd.to_timedelta(df['Duración'], errors='coerce')
 df['DuraciónHoras'] = df['Duración'].dt.total_seconds() / 3600
 df['DuraciónHoras'] = df['DuraciónHoras'].fillna(0)
 
+# FILTROS EN LA BARRA LATERAL
+st.sidebar.header("📋 Filtros")
+
 # Filtro de fechas
 min_fecha = df['Fecha'].min()
 max_fecha = df['Fecha'].max()
-
-st.sidebar.header("📅 Filtro de fechas")
 fecha_inicio, fecha_fin = st.sidebar.date_input(
     "Selecciona el rango de fechas",
     value=[min_fecha, max_fecha],
@@ -53,8 +54,20 @@ fecha_inicio, fecha_fin = st.sidebar.date_input(
     max_value=max_fecha
 )
 
-# Aplicar filtro
-df = df[(df['Fecha'] >= fecha_inicio) & (df['Fecha'] <= fecha_fin)]
+# Filtro por agente
+agentes_unicos = sorted(df['Agente'].dropna().unique())
+agentes_seleccionados = st.sidebar.multiselect(
+    "Selecciona agente(s)",
+    options=agentes_unicos,
+    default=agentes_unicos
+)
+
+# Aplicar filtros
+df = df[
+    (df['Fecha'] >= fecha_inicio) &
+    (df['Fecha'] <= fecha_fin) &
+    (df['Agente'].isin(agentes_seleccionados))
+]
 
 # Calcular primer Logged In
 logged = df[df['Estado'] == 'Logged In'].copy()
@@ -106,7 +119,6 @@ st.subheader("📊 Visualizaciones")
 
 # Gráfico 1: Tiempo total por estado
 tiempo_estado_total = df.groupby('Estado')['DuraciónHoras'].sum().reset_index()
-tiempo_estado_total['DuraciónHoras'] = tiempo_estado_total['DuraciónHoras'].fillna(0)
 
 fig1 = px.bar(
     tiempo_estado_total,
