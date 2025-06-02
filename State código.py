@@ -1,89 +1,121 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
+import io
+import plotly.express as px
 
-# Título de la app
-st.title("Análisis de Estados de Agentes")
+st.set_page_config(page_title="Análisis de Estados de Agentes", layout="wide")
 
-# Ruta al archivo Excel
-archivo = os.path.join(os.path.dirname(__file__), 'Estadosinfo.xlsx')
+st.title("📊 Análisis de Estados de Agentes")
 
+archivo = "Estadosinfo.xlsx"
 try:
     df = pd.read_excel(archivo)
-
-    # Renombrar columnas para facilitar el análisis
-    df.rename(columns={
-        'Agent Name': 'Agente',
-        'State Transition Time': 'Inicio',
-        'Agent State': 'Estado',
-        'Reason': 'Motivo',
-        'Duration': 'Duración'
-    }, inplace=True)
-
-    # Convertir tipos de datos
-    df['Inicio'] = pd.to_datetime(df['Inicio'], errors='coerce')
-    df['Duración'] = pd.to_numeric(df['Duración'], errors='coerce')
-
-    # Eliminar filas con valores inválidos
-    df.dropna(subset=['Inicio', 'Duración'], inplace=True)
-
-    # Extraer fecha
-    df['Fecha'] = df['Inicio'].dt.date
-
-    # ---- Calcular primer "Logged In" por día ----
-    primer_logged = df[df['Estado'] == 'Logged In'].groupby(['Agente', 'Fecha'])['Inicio'].min().reset_index()
-    primer_logged.rename(columns={'Inicio': 'Hora de Entrada'}, inplace=True)
-
-    # Reglas de horario esperado por agente
-    horarios = {
-        'Jonathan Alejandro Zúñiga': '12:00',
-        'Jesús Armando Arrambide': '08:00',
-        'Maria Teresa Loredo Morales': '10:00',
-        'Jorge Cesar Flores Rivera': '08:00'
-    }
-
-    # Función para evaluar retraso
-    def es_retraso(row):
-        hora_esperada = horarios.get(row['Agente'])
-        if not hora_esperada:
-            return 'Sin regla'
-        hora_esperada_dt = pd.to_datetime(hora_esperada).time()
-        return 'Sí' if row['Hora de Entrada'].time() > hora_esperada_dt else 'No'
-
-    primer_logged['Retraso'] = primer_logged.apply(es_retraso, axis=1)
-
-    st.subheader("Primer ingreso del día y retrasos")
-    st.dataframe(primer_logged)
-
-    # ---- Sumar duración total por estado y convertir a horas ----
-    tiempo_por_estado = df.groupby(['Agente', 'Fecha', 'Estado'])['Duración'].sum().reset_index()
-    tiempo_por_estado['Duración'] = tiempo_por_estado['Duración'] / 3600  # Convertir a horas
-    tiempo_por_estado['Duración'] = tiempo_por_estado['Duración'].round(2)
-
-    tiempo_pivot = tiempo_por_estado.pivot_table(
-        index=['Agente', 'Fecha'],
-        columns='Estado',
-        values='Duración',
-        fill_value=0
-    ).reset_index()
-
-    st.subheader("Duración total por estado (en horas)")
-    st.dataframe(tiempo_pivot)
-
-    # ---- Resumen total por agente ----
-    resumen_agente = tiempo_por_estado.groupby(['Agente', 'Estado'])['Duración'].sum().unstack(fill_value=0).round(2)
-
-    st.subheader("Resumen general por agente (en horas)")
-    st.dataframe(resumen_agente)
-
-    # ---- Botón de descarga ----
-    st.download_button(
-        label="📥 Descargar resumen general",
-        data=resumen_agente.to_excel(index=True),
-        file_name='resumen_estados_agente.xlsx',
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
-
 except FileNotFoundError:
-    st.error("❌ No se encontró el archivo 'Estadosinfo.xlsx' en la misma carpeta que el script.")
+    st.error(f"No se encontró el archivo '{archivo}'. Por favor colócalo en la carpeta del proyecto.")
+    st.stop()
+except Exception as e:
+    st.error(f"Error al leer el archivo: {e}")
+    st.stop()
+
+df.columns = df.columns.str.strip()
+
+columnas_esperadas = ['Agent Name', 'State Transition Time', 'Agent State', 'Reason', 'Duration']
+if not all(col in df.columns for col in columnas_esperadas):
+    st.error("El archivo no contiene todas las columnas necesarias.")
+    st.stop()
+
+df = df.rename(columns={
+    'Agent Name': 'Agente',
+    'State Transition Time': 'FechaHora',
+    'Agent State': 'Estado',
+    'Reason': 'Motivo',
+    'Duration': 'Duración'
+})
+
+df['FechaHora'] = pd.to_datetime(df['FechaHora'])
+df['Fecha'] = df['FechaHora'].dt.date
+df['Hora'] = df['FechaHora'].dt.time
+
+df['Duración'] = pd.to_timedelta(df['Duración'])
+df['DuraciónHoras'] = df['Duración'].dt.total_seconds() / 3600
+
+logged = df[df['Estado'] == 'Logged In'].copy()
+primer_logged = logged.sort_values(by='FechaHora').groupby(['Agente', 'Fecha']).first().reset_index()
+primer_logged['Hora Entrada'] = primer_logged['FechaHora'].dt.time
+
+horarios = {
+    'Jonathan Alejandro Zúñiga': 12,
+    'Jesús Armando Arrambide': 8,
+    'Maria Teresa Loredo Morales': 10,
+    'Jorge Cesar Flores Rivera': 8
+}
+
+def es_retraso(row):
+    esperado = horarios.get(row['Agente'], 8)
+    return row['FechaHora'].hour > esperado  # solo si llega después
+
+primer_logged['Retraso'] = primer_logged.apply(es_retraso, axis=1)
+primer_logged['Retraso'] = primer_logged['Retraso'].map({True: 'Sí', False: 'No'})
+
+tiempo_por_estado = df.groupby(['Agente', 'Fecha', 'Estado'])['DuraciónHoras'].sum().reset_index()
+tiempo_pivot = tiempo_por_estado.pivot_table(index=['Agente', 'Fecha'], columns='Estado', values='DuraciónHoras', fill_value=0).reset_index()
+
+resumen_agente = df.groupby('Agente')['DuraciónHoras'].sum().reset_index(name='Total de Horas')
+resumen_agente = resumen_agente.sort_values(by='Total de Horas', ascending=False)
+
+st.subheader("📌 Resumen de tiempo total por agente")
+st.dataframe(resumen_agente, use_container_width=True)
+
+st.subheader("🕓 Primer ingreso (Logged In) y retrasos")
+st.dataframe(primer_logged[['Agente', 'Fecha', 'Hora Entrada', 'Retraso']], use_container_width=True)
+
+st.subheader("⏱️ Tiempo invertido por estado por día")
+st.dataframe(tiempo_pivot, use_container_width=True)
+
+# Visualizaciones
+
+st.subheader("📊 Visualizaciones")
+
+# 1. Tiempo total invertido por estado (todos los agentes)
+tiempo_estado_total = df.groupby('Estado')['DuraciónHoras'].sum().reset_index()
+
+fig1 = px.bar(
+    tiempo_estado_total,
+    x='Estado',
+    y='DuraciónHoras',
+    title='⏳ Tiempo total invertido por estado (horas)',
+    labels={'DuraciónHoras': 'Horas', 'Estado': 'Estado'},
+    text=tiempo_estado_total['DuraciónHoras'].round(2)
+)
+fig1.update_traces(textposition='outside')
+st.plotly_chart(fig1, use_container_width=True)
+
+# 2. Días con retraso por agente
+retrasos_por_agente = primer_logged.groupby('Agente')['Retraso'].apply(lambda x: (x == 'Sí').sum()).reset_index(name='Días con Retraso')
+
+fig2 = px.bar(
+    retrasos_por_agente,
+    x='Agente',
+    y='Días con Retraso',
+    title='⏰ Días con retraso por agente',
+    labels={'Días con Retraso': 'Cantidad de días', 'Agente': 'Agente'},
+    text='Días con Retraso'
+)
+fig2.update_traces(textposition='outside')
+st.plotly_chart(fig2, use_container_width=True)
+
+# Botón para descargar archivo Excel con resultados
+buffer = io.BytesIO()
+with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+    resumen_agente.to_excel(writer, index=False, sheet_name='Resumen Total')
+    primer_logged[['Agente', 'Fecha', 'Hora Entrada', 'Retraso']].to_excel(writer, index=False, sheet_name='Primer Logged In')
+    tiempo_pivot.to_excel(writer, index=False, sheet_name='Tiempo por Estado')
+    buffer.seek(0)
+
+st.download_button(
+    label="📥 Descargar resumen en Excel",
+    data=buffer,
+    file_name="Resumen_Estados_Agentes.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
