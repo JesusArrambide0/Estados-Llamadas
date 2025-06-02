@@ -85,6 +85,13 @@ tiempo_por_estado = df_filtrado.groupby(['Agente', 'Fecha', 'Estado'])['Duració
 # Tabla pivote para mostrar el tiempo distribuido por estado
 tiempo_pivot = tiempo_por_estado.pivot_table(index=['Agente', 'Fecha'], columns='Estado', values='DuraciónHoras', fill_value=0).reset_index()
 
+# Gráfica de motivos
+st.subheader("🎯 Distribución de motivos")
+motivos = df_filtrado.groupby('Motivo')['DuraciónHoras'].sum().reset_index().sort_values(by='DuraciónHoras', ascending=False)
+fig2 = px.bar(motivos, x='Motivo', y='DuraciónHoras', text_auto='.2f', title='Tiempo por motivo', color='Motivo')
+fig2.update_layout(xaxis_title=None, yaxis_title="Horas")
+st.plotly_chart(fig2, use_container_width=True)
+
 # Resumen general
 resumen_agente = df_filtrado.groupby('Agente')['DuraciónHoras'].sum().reset_index(name='Total de Horas')
 resumen_agente = resumen_agente.sort_values(by='Total de Horas', ascending=False)
