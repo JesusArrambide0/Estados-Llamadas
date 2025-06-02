@@ -77,8 +77,9 @@ st.dataframe(tiempo_pivot, use_container_width=True)
 
 st.subheader("📊 Visualizaciones")
 
-# 1. Tiempo total invertido por estado (todos los agentes)
+# Asegurar que no haya NaNs para los textos
 tiempo_estado_total = df.groupby('Estado')['DuraciónHoras'].sum().reset_index()
+tiempo_estado_total['DuraciónHoras'] = tiempo_estado_total['DuraciónHoras'].fillna(0)
 
 fig1 = px.bar(
     tiempo_estado_total,
@@ -86,13 +87,13 @@ fig1 = px.bar(
     y='DuraciónHoras',
     title='⏳ Tiempo total invertido por estado (horas)',
     labels={'DuraciónHoras': 'Horas', 'Estado': 'Estado'},
-    text=tiempo_estado_total['DuraciónHoras'].round(2)
+    text=tiempo_estado_total['DuraciónHoras'].round(2).astype(str).tolist()
 )
 fig1.update_traces(textposition='outside')
 st.plotly_chart(fig1, use_container_width=True)
 
-# 2. Días con retraso por agente
 retrasos_por_agente = primer_logged.groupby('Agente')['Retraso'].apply(lambda x: (x == 'Sí').sum()).reset_index(name='Días con Retraso')
+retrasos_por_agente['Días con Retraso'] = retrasos_por_agente['Días con Retraso'].fillna(0)
 
 fig2 = px.bar(
     retrasos_por_agente,
@@ -100,7 +101,7 @@ fig2 = px.bar(
     y='Días con Retraso',
     title='⏰ Días con retraso por agente',
     labels={'Días con Retraso': 'Cantidad de días', 'Agente': 'Agente'},
-    text='Días con Retraso'
+    text=retrasos_por_agente['Días con Retraso'].astype(str).tolist()
 )
 fig2.update_traces(textposition='outside')
 st.plotly_chart(fig2, use_container_width=True)
