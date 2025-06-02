@@ -5,12 +5,12 @@ import plotly.express as px
 st.set_page_config(page_title="Análisis de Estados de Agentes", layout="wide")
 st.title("📊 Análisis de Estados de Agentes")
 
-# Carga archivo
+# Cargar archivo Excel
 archivo = "Estadosinfo.xlsx"
 df = pd.read_excel(archivo)
 df.columns = df.columns.str.strip()
 
-# Renombrar columnas para facilitar
+# Renombrar columnas para facilitar el trabajo
 df = df.rename(columns={
     'Agent Name': 'Agente',
     'State Transition Time': 'FechaHora',
@@ -19,13 +19,13 @@ df = df.rename(columns={
     'Duration': 'Duración'
 })
 
-# Convertir datos
+# Convertir columnas de fecha y duración
 df['FechaHora'] = pd.to_datetime(df['FechaHora'])
 df['Fecha'] = df['FechaHora'].dt.date
 df['Duración'] = pd.to_timedelta(df['Duración'])
 df['DuraciónHoras'] = df['Duración'].dt.total_seconds() / 3600
 
-# Filtros en sidebar
+# Sidebar: filtros
 st.sidebar.header("Filtros")
 fecha_min = df['Fecha'].min()
 fecha_max = df['Fecha'].max()
@@ -37,19 +37,19 @@ fecha_inicio, fecha_fin = st.sidebar.date_input(
     max_value=fecha_max
 )
 
-agentes = df['Agente'].dropna().unique()
+agentes = sorted(df['Agente'].dropna().unique())
 agentes_seleccionados = st.sidebar.multiselect(
     "Selecciona uno o varios agentes",
     options=agentes,
-    default=list(agentes)  # por defecto selecciona todos
+    default=agentes  # todos seleccionados por defecto
 )
 
-# Validar que se seleccionó al menos un agente
+# Validar selección
 if not agentes_seleccionados:
     st.warning("Por favor, selecciona al menos un agente para mostrar los datos.")
     st.stop()
 
-# Filtrar por agentes y rango de fechas
+# Filtrar datos
 df_filtrado = df[
     (df['Agente'].isin(agentes_seleccionados)) &
     (df['Fecha'] >= fecha_inicio) &
@@ -60,7 +60,7 @@ df_filtrado = df[
 st.subheader(f"Datos filtrados para agentes: {', '.join(agentes_seleccionados)}\nDel {fecha_inicio} al {fecha_fin}")
 st.dataframe(df_filtrado[['Agente', 'FechaHora', 'Estado', 'Motivo', 'DuraciónHoras']], use_container_width=True)
 
-# Concentrado porcentual de tiempo por Estado
+# Análisis porcentual tiempo por Estado
 total_horas = df_filtrado['DuraciónHoras'].sum()
 if total_horas > 0:
     porcentaje_estado = (
@@ -68,10 +68,10 @@ if total_horas > 0:
     ).reset_index().sort_values(by='DuraciónHoras', ascending=False)
     porcentaje_estado = porcentaje_estado.rename(columns={'DuraciónHoras': 'Porcentaje (%)'})
 
-    st.subheader("📊 Concentrado porcentual de tiempo invertido por Estado")
+    st.subheader("📊 Porcentaje de tiempo invertido por Estado")
     st.dataframe(porcentaje_estado, use_container_width=True)
 
-    # Gráfica de pastel interactiva
+    # Gráfica pie interactiva
     fig_pie = px.pie(
         porcentaje_estado,
         names='Estado',
@@ -80,8 +80,8 @@ if total_horas > 0:
     )
     st.plotly_chart(fig_pie, use_container_width=True)
 
-    # Gráfica de barras con total horas por estado
-    st.subheader("📈 Total de horas invertidas por Estado")
+    # Gráfica barras horas totales por Estado
+    st.subheader("📈 Horas totales por Estado")
     total_horas_estado = df_filtrado.groupby('Estado')['DuraciónHoras'].sum().reset_index()
     fig_bar = px.bar(
         total_horas_estado,
@@ -92,8 +92,8 @@ if total_horas > 0:
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
-    # Total de horas trabajadas por día (agregado para todos agentes seleccionados)
-    st.subheader("🗓️ Total de horas trabajadas por día")
+    # Horas trabajadas por día
+    st.subheader("🗓️ Horas trabajadas por día")
     horas_por_dia = df_filtrado.groupby('Fecha')['DuraciónHoras'].sum().reset_index()
     fig_line = px.bar(
         horas_por_dia,
@@ -104,17 +104,13 @@ if total_horas > 0:
     )
     st.plotly_chart(fig_line, use_container_width=True)
 
-    # Análisis de motivos (Reasons)
+    # Análisis de motivos
     st.subheader("🔍 Distribución de motivos (Reason)")
-
     motivos_conteo = df_filtrado['Motivo'].value_counts().reset_index()
     motivos_conteo.columns = ['Motivo', 'Conteo']
-
     motivos_conteo['Porcentaje (%)'] = (motivos_conteo['Conteo'] / motivos_conteo['Conteo'].sum()) * 100
-
     st.dataframe(motivos_conteo, use_container_width=True)
 
-    # Gráfica barras para motivos
     fig_motivos = px.bar(
         motivos_conteo,
         x='Motivo',
@@ -125,6 +121,5 @@ if total_horas > 0:
     )
     fig_motivos.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
     st.plotly_chart(fig_motivos, use_container_width=True)
-
 else:
-    st.write("No hay datos suficientes para mostrar el concentrado de tiempos.")
+    st.info("No hay datos suficientes para mostrar análisis con los filtros seleccionados.")
