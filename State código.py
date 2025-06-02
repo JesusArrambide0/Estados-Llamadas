@@ -1,136 +1,132 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
-import streamlit as st
 import plotly.express as px
-from datetime import datetime
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Análisis de Estados de Agentes", layout="wide")
+st.title("📊 Análisis de Estados de Agentes")
 
-st.title("📊 Panel de Análisis de Estados de Agentes")
+# Cargar datos
+archivo = "EstadosInfo.xlsx"
+df = pd.read_excel(archivo)
+df.columns = df.columns.str.strip()
 
-archivo = "Estadosinfo.xlsx"
-try:
-    df = pd.read_excel(archivo)
-except FileNotFoundError:
-    st.error(f"No se encontró el archivo '{archivo}'. Por favor colócalo en la carpeta del proyecto.")
+# Verificación de columnas
+columnas_necesarias = ['Agent Name', 'State Transition Time', 'Agent State', 'Reason', 'Duration']
+if not all(col in df.columns for col in columnas_necesarias):
+    st.error("❌ El archivo no contiene todas las columnas necesarias.")
     st.stop()
-except Exception as e:
-    st.error(f"Error al leer el archivo: {e}")
-    st.stop()
 
-    df.columns = df.columns.str.strip()
-    df = df.rename(columns={
-        "Agent Name": "Agente",
-        "State Transition Time": "Inicio",
-        "Agent State": "Estado",
-        "Reason": "Motivo",
-        "Duration": "Duración"
-    })
-    df["Inicio"] = pd.to_datetime(df["Inicio"])
-    df["Duración"] = pd.to_timedelta(df["Duración"], unit="s")
-    df["Fin"] = df["Inicio"] + df["Duración"]
+# Renombrar
+df = df.rename(columns={
+    'Agent Name': 'Agente',
+    'State Transition Time': 'FechaHora',
+    'Agent State': 'Estado',
+    'Reason': 'Motivo',
+    'Duration': 'Duración'
+})
 
-    agentes = df["Agente"].unique()
-    col1, col2 = st.columns(2)
-    with col1:
-        fecha_inicio = st.date_input("📅 Fecha inicial", value=df["Inicio"].min().date())
-    with col2:
-        fecha_fin = st.date_input("📅 Fecha final", value=df["Inicio"].max().date())
+# Procesamiento de fechas y duración
+df['FechaHora'] = pd.to_datetime(df['FechaHora'])
+df['Fecha'] = df['FechaHora'].dt.date
+df['Hora'] = df['FechaHora'].dt.time
+df['Duración'] = pd.to_timedelta(df['Duración'])
+df['DuraciónHoras'] = df['Duración'].dt.total_seconds() / 3600
 
-    agente_seleccionado = st.multiselect("👥 Selecciona agente(s)", agentes, default=list(agentes))
+# Filtros
+agentes = df['Agente'].unique()
+agente_seleccionado = st.selectbox("👤 Selecciona un agente:", options=np.append(["Todos"], agentes))
 
-    df_filtrado = df[
-        (df["Inicio"].dt.date >= fecha_inicio) &
-        (df["Inicio"].dt.date <= fecha_fin) &
-        (df["Agente"].isin(agente_seleccionado))
-    ]
+fechas = df['Fecha'].sort_values().unique()
+fecha_inicio = st.date_input("📅 Fecha inicial:", min_value=min(fechas), value=min(fechas))
+fecha_fin = st.date_input("📅 Fecha final:", max_value=max(fechas), value=max(fechas))
 
-    if df_filtrado.empty:
-        st.warning("No hay datos disponibles con los filtros aplicados.")
-        st.stop()
+df_filtrado = df[(df['Fecha'] >= fecha_inicio) & (df['Fecha'] <= fecha_fin)]
+if agente_seleccionado != "Todos":
+    df_filtrado = df_filtrado[df_filtrado['Agente'] == agente_seleccionado]
 
-    # ---------- Cálculo de retrasos ----------
-    horarios_esperados = {
-        "Jonathan Alejandro Zúñiga": datetime.strptime("12:00", "%H:%M").time(),
-        "Jesús Armando Arrambide": datetime.strptime("08:00", "%H:%M").time(),
-        "Maria Teresa Loredo Morales": datetime.strptime("10:00", "%H:%M").time(),
-        "Jorge Cesar Flores Rivera": datetime.strptime("08:00", "%H:%M").time()
-    }
+# Primer Logged-in
+primer_logged = df_filtrado[df_filtrado['Estado'].str.lower() == 'logged-in'].copy()
+primer_logged = primer_logged.sort_values(by='FechaHora').groupby(['Agente', 'Fecha']).first().reset_index()
+primer_logged['Hora Entrada'] = primer_logged['FechaHora'].dt.time
 
-    primer_logged = df_filtrado[df_filtrado["Estado"].str.lower().str.contains("logged")].sort_values("Inicio").groupby("Agente").first().reset_index()
+# Reglas de horario esperado
+horarios = {
+    'Jonathan Alejandro Zúñiga': 12,
+    'Jesús Armando Arrambide': 8,
+    'Maria Teresa Loredo Morales': 10,
+    'Jorge Cesar Flores Rivera': 8
+}
 
-    def evaluar_retraso(row):
-        esperado = horarios_esperados.get(row["Agente"])
-        if esperado:
-            return row["Inicio"].time() > esperado
-        return False
+def es_retraso(row):
+    hora_esperada = horarios.get(row['Agente'], 8)
+    return row['FechaHora'].hour >= hora_esperada
 
-    primer_logged["Retraso"] = primer_logged.apply(evaluar_retraso, axis=1)
-
-    # Ausentes
-    agentes_presentes = primer_logged["Agente"].tolist()
-    ausentes = set(agente_seleccionado) - set(agentes_presentes)
-
-    # ---------- Cálculo de productividad ----------
-    df_filtrado["Productivo"] = df_filtrado["Estado"].isin(["Ready", "Reserved", "Working"])
-    productividad = df_filtrado[df_filtrado["Productivo"]].groupby("Agente")["Duración"].sum().reset_index()
-    productividad["Horas Efectivas"] = productividad["Duración"].dt.total_seconds() / 3600
-    productividad = productividad[["Agente", "Horas Efectivas"]]
-
-    # ---------- Porcentaje por estado ----------
-    estado_total = df_filtrado.groupby("Estado")["Duración"].sum()
-    estado_porcentaje = (estado_total / estado_total.sum()).sort_values(ascending=False)
-    estado_porcentaje_df = estado_porcentaje.reset_index()
-    estado_porcentaje_df["%"] = estado_porcentaje_df["Duración"].dt.total_seconds() / estado_total.sum().total_seconds() * 100
-
-    # ---------- Gráficas ----------
-    grafica_estados = px.bar(
-        df_filtrado.groupby(["Agente", "Estado"])["Duración"].sum().dt.total_seconds().reset_index(),
-        x="Agente", y="Duración", color="Estado", barmode="stack",
-        labels={"Duración": "Segundos"}, title="📌 Distribución de Estados por Agente"
-    )
-    grafica_estados.update_traces(texttemplate="%{y}", textposition="inside")
-
-    grafica_motivos = px.bar(
-        df_filtrado.groupby("Motivo")["Duración"].sum().dt.total_seconds().sort_values(ascending=False).reset_index(),
-        x="Motivo", y="Duración", title="📌 Duración por Motivo", labels={"Duración": "Segundos"}
-    )
-    grafica_motivos.update_traces(texttemplate="%{y}", textposition="outside")
-
-    grafica_gantt = px.timeline(
-        df_filtrado,
-        x_start="Inicio", x_end="Fin", y="Agente", color="Estado", title="⏱️ Línea de Tiempo de Estados"
-    )
-    grafica_gantt.update_yaxes(autorange="reversed")
-
-    # ---------- Tabs ----------
-    tab1, tab2, tab3, tab4 = st.tabs(["📋 Vista General", "⏰ Retrasos y Ausencias", "📊 Gráficas", "📈 Productividad"])
-
-    with tab1:
-        st.markdown("### Datos filtrados")
-        st.dataframe(df_filtrado)
-
-    with tab2:
-        st.markdown("### 🕒 Primer Logged-in y retrasos")
-        st.dataframe(
-            primer_logged[["Agente", "Inicio", "Retraso"]].style.applymap(
-                lambda val: "background-color: yellow" if val is True else "", subset=["Retraso"]
-            )
-        )
-        if ausentes:
-            st.warning(f"⚠️ Agentes sin log-in en el periodo: {', '.join(ausentes)}")
-
-    with tab3:
-        st.plotly_chart(grafica_estados, use_container_width=True)
-        st.plotly_chart(grafica_motivos, use_container_width=True)
-        st.plotly_chart(grafica_gantt, use_container_width=True)
-
-    with tab4:
-        st.markdown("### 🧠 Horas efectivas trabajadas")
-        st.dataframe(productividad)
-
-        st.markdown("### 🧮 Distribución porcentual por estado")
-        st.dataframe(estado_porcentaje_df[["Estado", "%"]].round(2))
-
+if not primer_logged.empty:
+    primer_logged['Retraso'] = primer_logged.apply(es_retraso, axis=1)
 else:
-    st.info("📎 Carga un archivo para comenzar el análisis.")
+    st.warning("⚠️ No se encontraron registros de 'Logged-in' para los filtros aplicados.")
+
+# Tiempo por estado
+tiempo_estado = df_filtrado.groupby(['Agente', 'Fecha', 'Estado'])['DuraciónHoras'].sum().reset_index()
+pivot_tiempo = tiempo_estado.pivot_table(index=['Agente', 'Fecha'], columns='Estado', values='DuraciónHoras', fill_value=0).reset_index()
+
+# Gráfica de tiempo por estado
+st.subheader("📊 Tiempo invertido por estado")
+fig1 = px.bar(
+    tiempo_estado,
+    x='Estado',
+    y='DuraciónHoras',
+    color='Estado',
+    text_auto='.2f',
+    title='Distribución de tiempo por estado',
+)
+fig1.update_layout(xaxis_title=None, yaxis_title="Horas")
+st.plotly_chart(fig1, use_container_width=True)
+
+# Gráfica de motivos
+st.subheader("🎯 Distribución de motivos")
+motivos = df_filtrado.groupby('Motivo')['DuraciónHoras'].sum().reset_index().sort_values(by='DuraciónHoras', ascending=False)
+fig2 = px.bar(motivos, x='Motivo', y='DuraciónHoras', text_auto='.2f', title='Tiempo por motivo', color='Motivo')
+fig2.update_layout(xaxis_title=None, yaxis_title="Horas")
+st.plotly_chart(fig2, use_container_width=True)
+
+# Línea de tiempo
+st.subheader("🕓 Línea de tiempo de estados")
+fig3 = px.timeline(df_filtrado, x_start="FechaHora", x_end=df_filtrado["FechaHora"] + df_filtrado["Duración"],
+                   y="Agente", color="Estado", hover_data=["Motivo"])
+fig3.update_yaxes(autorange="reversed")
+st.plotly_chart(fig3, use_container_width=True)
+
+# Resumen por agente
+st.subheader("📌 Resumen total por agente")
+resumen = df_filtrado.groupby('Agente')['DuraciónHoras'].sum().reset_index(name='Total Horas')
+st.dataframe(resumen, use_container_width=True)
+
+# Primer ingreso con resaltado condicional
+if not primer_logged.empty:
+    st.subheader("🚦 Primer ingreso y retrasos")
+    def resaltar_retraso(val):
+        return 'background-color: red; color: white;' if val else ''
+    st.dataframe(primer_logged[['Agente', 'Fecha', 'Hora Entrada', 'Retraso']].style.applymap(resaltar_retraso, subset=['Retraso']), use_container_width=True)
+
+# Análisis de % de tiempo por estado
+st.subheader("📈 Porcentaje de tiempo dedicado por estado")
+estado_pct = df_filtrado.groupby('Estado')['DuraciónHoras'].sum().reset_index()
+estado_pct['%'] = (estado_pct['DuraciónHoras'] / estado_pct['DuraciónHoras'].sum()) * 100
+st.dataframe(estado_pct[['Estado', 'DuraciónHoras', '%']].sort_values(by='%', ascending=False), use_container_width=True)
+
+# Análisis de productividad (Ready + Reserved)
+st.subheader("⚙️ Análisis de productividad y ausencias")
+prod_estados = ['Ready', 'Reserved']
+df_prod = df_filtrado[df_filtrado['Estado'].isin(prod_estados)]
+prod_summary = df_prod.groupby('Agente')['DuraciónHoras'].sum().reset_index(name='Horas Productivas')
+
+# Ausencias
+logged_days = df_filtrado.groupby('Agente')['Fecha'].nunique().reset_index(name='Días Conectado')
+rango_total_dias = pd.date_range(start=fecha_inicio, end=fecha_fin).nunique()
+logged_days['Ausencias'] = rango_total_dias - logged_days['Días Conectado']
+
+# Combinar
+productividad = pd.merge(prod_summary, logged_days, on='Agente', how='outer').fillna(0)
+st.dataframe(productividad, use_container_width=True)
