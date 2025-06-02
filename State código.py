@@ -22,14 +22,15 @@ df = df.rename(columns={
     'Duration': 'Duración'
 })
 
-# Convertir a datetime
-df['Inicio Estado'] = pd.to_datetime(df['Inicio Estado'])
+# Convertir a datetime y extraer fecha y hora
+df['Inicio Estado'] = pd.to_datetime(df['Inicio Estado'], errors='coerce')
+df.dropna(subset=['Inicio Estado'], inplace=True)
 df['Fecha'] = df['Inicio Estado'].dt.date
 df['Hora'] = df['Inicio Estado'].dt.time
 
 # Convertir duración a segundos (si viene como timedelta)
 if not np.issubdtype(df['Duración'].dtype, np.number):
-    df['Duración'] = pd.to_timedelta(df['Duración']).dt.total_seconds()
+    df['Duración'] = pd.to_timedelta(df['Duración'], errors='coerce').dt.total_seconds()
 
 # Definir horarios esperados por agente
 horarios_esperados = {
@@ -40,12 +41,8 @@ horarios_esperados = {
 }
 
 # Filtros por rango de fechas y agentes
-try:
-    min_fecha = pd.to_datetime(df['Fecha']).min().date()
-    max_fecha = pd.to_datetime(df['Fecha']).max().date()
-except Exception as e:
-    st.error(f"Error al calcular fechas mínimas o máximas: {e}")
-    st.stop()
+min_fecha = df['Fecha'].min()
+max_fecha = df['Fecha'].max()
 
 st.sidebar.header("Filtros")
 fecha_inicio, fecha_fin = st.sidebar.date_input(
@@ -55,7 +52,7 @@ fecha_inicio, fecha_fin = st.sidebar.date_input(
     max_value=max_fecha
 )
 
-agentes_unicos = df['Agente'].unique().tolist()
+agentes_unicos = df['Agente'].dropna().unique().tolist()
 agentes_seleccionados = st.sidebar.multiselect(
     "Selecciona agentes",
     options=agentes_unicos,
@@ -72,39 +69,41 @@ if df_filtrado.empty:
     st.warning("No hay datos para el rango y agentes seleccionados.")
     st.stop()
 
-# Primer "Logged In" por día por agente en datos filtrados
+# Obtener el primer "Logged In" del día
 logged_in = df_filtrado[df_filtrado['Estado'].str.lower() == 'logged in']
 primer_logged = logged_in.sort_values(by='Inicio Estado').groupby(['Agente', 'Fecha']).first().reset_index()
 
-# Limpieza y aseguramiento tipo datetime.time para la columna 'Hora'
+# Asegurar que la hora esté limpia
 def fix_hora(h):
     if pd.isnull(h):
         return None
-    if isinstance(h, pd.Timestamp):
-        return h.time()
-    if isinstance(h, str):
-        try:
+    try:
+        if isinstance(h, str):
             return pd.to_datetime(h).time()
-        except:
-            return None
-    return h
+        elif isinstance(h, pd.Timestamp):
+            return h.time()
+        elif isinstance(h, time):
+            return h
+    except Exception:
+        return None
+    return None
 
 primer_logged['Hora'] = primer_logged['Hora'].apply(fix_hora)
 
-# Función para calcular retraso con manejo de nulos
+# Determinar si hay retraso
 def es_retraso(row):
     esperado = horarios_esperados.get(row['Agente'], time(8, 0))
     hora = row['Hora']
-    if hora is None:
-        return False
-    return hora > esperado
+    if isinstance(hora, time):
+        return hora > esperado
+    return False
 
 primer_logged['Retraso'] = primer_logged.apply(es_retraso, axis=1)
 
-# Contabilizar tiempo por estado en datos filtrados
+# Calcular tiempo por estado
 tiempo_por_estado = df_filtrado.groupby(['Agente', 'Fecha', 'Estado'])['Duración'].sum().reset_index()
 
-# Mostrar tablas
+# Mostrar resultados
 st.subheader("Primer 'Logged In' del día y retrasos")
 st.dataframe(primer_logged[['Agente', 'Fecha', 'Hora', 'Retraso']])
 
