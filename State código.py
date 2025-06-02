@@ -70,6 +70,52 @@ if total_horas > 0:
         title='Distribución porcentual del tiempo por Estado'
     )
     st.plotly_chart(fig_pie, use_container_width=True)
+
+    # Gráfica de barras con total horas por estado
+    st.subheader("📈 Total de horas invertidas por Estado")
+    total_horas_estado = df_filtrado.groupby('Estado')['DuraciónHoras'].sum().reset_index()
+    fig_bar = px.bar(
+        total_horas_estado,
+        x='Estado',
+        y='DuraciónHoras',
+        title='Horas totales por Estado',
+        labels={'DuraciónHoras': 'Horas'}
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+    # Total de horas trabajadas por día
+    st.subheader("🗓️ Total de horas trabajadas por día")
+    horas_por_dia = df_filtrado.groupby('Fecha')['DuraciónHoras'].sum().reset_index()
+    fig_line = px.bar(
+        horas_por_dia,
+        x='Fecha',
+        y='DuraciónHoras',
+        title='Horas trabajadas por día',
+        labels={'DuraciónHoras': 'Horas'}
+    )
+    st.plotly_chart(fig_line, use_container_width=True)
+
+    # Análisis de motivos (Reasons)
+    st.subheader("🔍 Distribución de motivos (Reason)")
+
+    motivos_conteo = df_filtrado['Motivo'].value_counts().reset_index()
+    motivos_conteo.columns = ['Motivo', 'Conteo']
+
+    motivos_conteo['Porcentaje (%)'] = (motivos_conteo['Conteo'] / motivos_conteo['Conteo'].sum()) * 100
+
+    st.dataframe(motivos_conteo, use_container_width=True)
+
+    # Gráfica barras para motivos
+    fig_motivos = px.bar(
+        motivos_conteo,
+        x='Motivo',
+        y='Conteo',
+        title='Conteo de motivos',
+        labels={'Conteo': 'Cantidad'},
+        text='Porcentaje (%)'
+    )
+    fig_motivos.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+    st.plotly_chart(fig_motivos, use_container_width=True)
+
 else:
     st.write("No hay datos suficientes para mostrar el concentrado de tiempos.")
-
