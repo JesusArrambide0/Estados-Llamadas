@@ -104,3 +104,43 @@ if df_filtrado['Motivo'].notna().sum() > 0:
     st.plotly_chart(fig_motivos, use_container_width=True)
 else:
     st.info("No hay motivos registrados para el agente en el rango seleccionado.")
+
+# NUEVA GRÁFICA: tiempo por estado y fecha (barras apiladas)
+st.subheader("📊 Tiempo invertido por estado y día (gráfica)")
+
+if not tiempo_por_estado.empty:
+    fig_estados = px.bar(
+        tiempo_por_estado,
+        x='Fecha',
+        y='DuraciónHoras',
+        color='Estado',
+        title=f"Tiempo por Estado para {agente_seleccionado}",
+        labels={'DuraciónHoras': 'Horas', 'Fecha': 'Fecha'},
+        barmode='stack',
+        height=400
+    )
+    st.plotly_chart(fig_estados, use_container_width=True)
+else:
+    st.info("No hay datos para graficar el tiempo por estado en las fechas seleccionadas.")
+
+# Análisis porcentual del tiempo invertido por estado
+st.subheader("📊 Porcentaje de tiempo invertido por estado")
+
+if not tiempo_por_estado.empty:
+    total_horas = tiempo_por_estado['DuraciónHoras'].sum()
+    tiempo_por_estado_agg = tiempo_por_estado.groupby('Estado')['DuraciónHoras'].sum().reset_index()
+    tiempo_por_estado_agg['Porcentaje'] = (tiempo_por_estado_agg['DuraciónHoras'] / total_horas) * 100
+    tiempo_por_estado_agg = tiempo_por_estado_agg.sort_values(by='Porcentaje', ascending=False)
+
+    st.dataframe(tiempo_por_estado_agg[['Estado', 'DuraciónHoras', 'Porcentaje']], use_container_width=True)
+
+    fig_pie = px.pie(
+        tiempo_por_estado_agg,
+        names='Estado',
+        values='Porcentaje',
+        title=f"Distribución porcentual del tiempo por estado - {agente_seleccionado}",
+        hole=0.4
+    )
+    st.plotly_chart(fig_pie, use_container_width=True)
+else:
+    st.info("No hay datos para calcular el porcentaje de tiempo invertido por estado.")
