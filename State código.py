@@ -1,16 +1,24 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
+from datetime import datetime
 
 st.set_page_config(page_title="Análisis de Estados de Agentes", layout="wide")
 st.title("📊 Análisis de Estados de Agentes")
 
-# Cargar archivo Excel
+# Leer el archivo
 archivo = "Estadosinfo.xlsx"
 df = pd.read_excel(archivo)
 df.columns = df.columns.str.strip()
 
-# Renombrar columnas para facilitar el trabajo
+# Validar columnas necesarias
+columnas_esperadas = ['Agent Name', 'State Transition Time', 'Agent State', 'Reason', 'Duration']
+if not all(col in df.columns for col in columnas_esperadas):
+    st.error("El archivo no contiene todas las columnas necesarias.")
+    st.stop()
+
+# Renombrar columnas
 df = df.rename(columns={
     'Agent Name': 'Agente',
     'State Transition Time': 'FechaHora',
@@ -19,107 +27,105 @@ df = df.rename(columns={
     'Duration': 'Duración'
 })
 
-# Convertir columnas de fecha y duración
+# Convertir columnas
 df['FechaHora'] = pd.to_datetime(df['FechaHora'])
 df['Fecha'] = df['FechaHora'].dt.date
-df['Duración'] = pd.to_timedelta(df['Duración'])
+df['Hora'] = df['FechaHora'].dt.time
+df['Duración'] = pd.to_timedelta(df['Duración'], errors='coerce')
 df['DuraciónHoras'] = df['Duración'].dt.total_seconds() / 3600
 
-# Sidebar: filtros
-st.sidebar.header("Filtros")
-fecha_min = df['Fecha'].min()
-fecha_max = df['Fecha'].max()
+# Filtros en sidebar
+with st.sidebar:
+    st.header("Filtros")
+    fechas = st.date_input("📅 Rango de Fechas", [df['Fecha'].min(), df['Fecha'].max()])
+    agentes_disponibles = df['Agente'].unique().tolist()
+    agente_sel = st.selectbox("👤 Selecciona un agente", options=["Todos"] + agentes_disponibles)
 
-fecha_inicio, fecha_fin = st.sidebar.date_input(
-    "Rango de fechas",
-    value=(fecha_min, fecha_max),
-    min_value=fecha_min,
-    max_value=fecha_max
+# Aplicar filtros
+df_filtrado = df.copy()
+df_filtrado = df_filtrado[(df_filtrado['Fecha'] >= fechas[0]) & (df_filtrado['Fecha'] <= fechas[1])]
+if agente_sel != "Todos":
+    df_filtrado = df_filtrado[df_filtrado['Agente'] == agente_sel]
+
+# Resumen de horas totales
+resumen_agente = df_filtrado.groupby('Agente')['DuraciónHoras'].sum().reset_index(name='Total de Horas')
+resumen_agente = resumen_agente.sort_values(by='Total de Horas', ascending=False)
+
+st.subheader("📌 Tiempo Total por Agente")
+st.dataframe(resumen_agente, use_container_width=True)
+
+# Tiempo por estado y motivo
+tiempo_por_estado = df_filtrado.groupby(['Agente', 'Fecha', 'Estado'])['DuraciónHoras'].sum().reset_index()
+pivot_estado = tiempo_por_estado.pivot_table(index=['Agente', 'Fecha'], columns='Estado', values='DuraciónHoras', fill_value=0).reset_index()
+
+st.subheader("⏱️ Tiempo Invertido por Estado")
+st.dataframe(pivot_estado, use_container_width=True)
+
+# Gráfica de barras por estado
+st.subheader("📊 Distribución de tiempo por estado")
+fig1 = px.bar(
+    df_filtrado.groupby('Estado')['DuraciónHoras'].sum().reset_index(),
+    x='Estado', y='DuraciónHoras',
+    title='Duración total por Estado',
+    labels={'DuraciónHoras': 'Horas'},
+    color='Estado'
 )
+st.plotly_chart(fig1, use_container_width=True)
 
-agentes = sorted(df['Agente'].dropna().unique())
-agentes_seleccionados = st.sidebar.multiselect(
-    "Selecciona uno o varios agentes",
-    options=agentes,
-    default=agentes  # todos seleccionados por defecto
+# Gráfica de motivos por estado
+st.subheader("📈 Motivos registrados por Estado")
+fig2 = px.bar(
+    df_filtrado.groupby(['Estado', 'Motivo'])['DuraciónHoras'].sum().reset_index(),
+    x='Motivo', y='DuraciónHoras', color='Estado',
+    title="Motivos por Estado",
+    labels={'DuraciónHoras': 'Horas'}
 )
+st.plotly_chart(fig2, use_container_width=True)
 
-# Validar selección
-if not agentes_seleccionados:
-    st.warning("Por favor, selecciona al menos un agente para mostrar los datos.")
-    st.stop()
-
-# Filtrar datos
-df_filtrado = df[
-    (df['Agente'].isin(agentes_seleccionados)) &
-    (df['Fecha'] >= fecha_inicio) &
-    (df['Fecha'] <= fecha_fin)
-]
-
-# Mostrar datos filtrados
-st.subheader(f"Datos filtrados para agentes: {', '.join(agentes_seleccionados)}\nDel {fecha_inicio} al {fecha_fin}")
-st.dataframe(df_filtrado[['Agente', 'FechaHora', 'Estado', 'Motivo', 'DuraciónHoras']], use_container_width=True)
-
-# Análisis porcentual tiempo por Estado
+# Concentrado porcentual por estado
+st.subheader("📌 Porcentaje de tiempo por estado")
 total_horas = df_filtrado['DuraciónHoras'].sum()
-if total_horas > 0:
-    porcentaje_estado = (
-        df_filtrado.groupby('Estado')['DuraciónHoras'].sum() / total_horas * 100
-    ).reset_index().sort_values(by='DuraciónHoras', ascending=False)
-    porcentaje_estado = porcentaje_estado.rename(columns={'DuraciónHoras': 'Porcentaje (%)'})
+porcentaje_estado = (
+    df_filtrado.groupby('Estado')['DuraciónHoras'].sum()
+    .reset_index()
+    .assign(Porcentaje=lambda x: round((x['DuraciónHoras'] / total_horas) * 100, 2))
+)
+st.dataframe(porcentaje_estado, use_container_width=True)
 
-    st.subheader("📊 Porcentaje de tiempo invertido por Estado")
-    st.dataframe(porcentaje_estado, use_container_width=True)
+# Análisis de retrasos
+st.subheader("⏰ Análisis de retrasos")
 
-    # Gráfica pie interactiva
-    fig_pie = px.pie(
-        porcentaje_estado,
-        names='Estado',
-        values='Porcentaje (%)',
-        title='Distribución porcentual del tiempo por Estado'
-    )
-    st.plotly_chart(fig_pie, use_container_width=True)
+# Filtrar sólo "Logged In"
+logged = df_filtrado[df_filtrado['Estado'] == 'Logged In'].copy()
+logged['Fecha'] = pd.to_datetime(logged['FechaHora']).dt.date
+logged['HoraEntrada'] = pd.to_datetime(logged['FechaHora']).dt.time
 
-    # Gráfica barras horas totales por Estado
-    st.subheader("📈 Horas totales por Estado")
-    total_horas_estado = df_filtrado.groupby('Estado')['DuraciónHoras'].sum().reset_index()
-    fig_bar = px.bar(
-        total_horas_estado,
-        x='Estado',
-        y='DuraciónHoras',
-        title='Horas totales por Estado',
-        labels={'DuraciónHoras': 'Horas'}
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
+# Primer ingreso por agente y fecha
+primer_logged = logged.sort_values(by='FechaHora').groupby(['Agente', 'Fecha']).first().reset_index()
 
-    # Horas trabajadas por día
-    st.subheader("🗓️ Horas trabajadas por día")
-    horas_por_dia = df_filtrado.groupby('Fecha')['DuraciónHoras'].sum().reset_index()
-    fig_line = px.bar(
-        horas_por_dia,
-        x='Fecha',
-        y='DuraciónHoras',
-        title='Horas trabajadas por día',
-        labels={'DuraciónHoras': 'Horas'}
-    )
-    st.plotly_chart(fig_line, use_container_width=True)
+# Límites de entrada por agente
+horarios_esperados = {
+    'Jonathan Alejandro Zúñiga': pd.to_datetime('12:00').time(),
+    'Jesús Armando Arrambide': pd.to_datetime('08:00').time(),
+    'Maria Teresa Loredo Morales': pd.to_datetime('10:00').time(),
+    'Jorge Cesar Flores Rivera': pd.to_datetime('08:00').time()
+}
 
-    # Análisis de motivos
-    st.subheader("🔍 Distribución de motivos (Reason)")
-    motivos_conteo = df_filtrado['Motivo'].value_counts().reset_index()
-    motivos_conteo.columns = ['Motivo', 'Conteo']
-    motivos_conteo['Porcentaje (%)'] = (motivos_conteo['Conteo'] / motivos_conteo['Conteo'].sum()) * 100
-    st.dataframe(motivos_conteo, use_container_width=True)
+def es_retraso(row):
+    hora_limite = horarios_esperados.get(row['Agente'])
+    if hora_limite is None:
+        return None
+    return row['HoraEntrada'] > hora_limite
 
-    fig_motivos = px.bar(
-        motivos_conteo,
-        x='Motivo',
-        y='Conteo',
-        title='Conteo de motivos',
-        labels={'Conteo': 'Cantidad'},
-        text='Porcentaje (%)'
-    )
-    fig_motivos.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-    st.plotly_chart(fig_motivos, use_container_width=True)
-else:
-    st.info("No hay datos suficientes para mostrar análisis con los filtros seleccionados.")
+primer_logged['Retraso'] = primer_logged.apply(es_retraso, axis=1)
+
+# Contar días con retraso
+retrasos_por_agente = (
+    primer_logged.groupby('Agente')['Retraso']
+    .agg(['sum', 'count'])
+    .rename(columns={'sum': 'Días con Retraso', 'count': 'Días Evaluados'})
+)
+retrasos_por_agente['% Días con Retraso'] = (retrasos_por_agente['Días con Retraso'] / retrasos_por_agente['Días Evaluados']) * 100
+
+# Mostrar tabla
+st.dataframe(retrasos_por_agente.reset_index(), use_container_width=True)
