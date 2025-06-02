@@ -58,7 +58,7 @@ primer_logged['Hora Entrada'] = primer_logged['FechaHora'].dt.time
 
 # Reglas de horario esperado
 horarios = {
-    'Jonathan Alejandro Zúñiga': 12,
+    'Jonathan Alejandro Zúñiga': 8,
     'Jesús Armando Arrambide': 8,
     'Maria Teresa Loredo Morales': 10,
     'Jorge Cesar Flores Rivera': 8
