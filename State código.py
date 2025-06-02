@@ -5,7 +5,6 @@ from datetime import datetime, time
 
 st.title("Análisis de Estados de Agentes")
 
-# Cargar archivo fijo
 archivo = 'Estadosinfo.xlsx'
 try:
     df = pd.read_excel(archivo)
@@ -13,7 +12,13 @@ except Exception as e:
     st.error(f"No se pudo leer el archivo '{archivo}'. Error: {e}")
     st.stop()
 
-# Renombrar columnas por claridad
+# Validar columnas esperadas
+columnas_esperadas = ['Agent Name', 'State Transition Time', 'Agent State', 'Reason', 'Duration']
+if not all(c in df.columns for c in columnas_esperadas):
+    st.error(f"El archivo no contiene todas las columnas requeridas: {columnas_esperadas}")
+    st.stop()
+
+# Renombrar para comodidad
 df = df.rename(columns={
     'Agent Name': 'Agente',
     'State Transition Time': 'Inicio Estado',
@@ -22,14 +27,23 @@ df = df.rename(columns={
     'Duration': 'Duración'
 })
 
-# Convertir a datetime
-df['Inicio Estado'] = pd.to_datetime(df['Inicio Estado'])
+# Convertir 'Inicio Estado' a datetime con coerción para evitar errores
+df['Inicio Estado'] = pd.to_datetime(df['Inicio Estado'], errors='coerce')
+if df['Inicio Estado'].isnull().all():
+    st.error("La columna 'State Transition Time' no tiene datos válidos de fecha/hora.")
+    st.stop()
+
+# Crear columnas para fecha y hora
 df['Fecha'] = df['Inicio Estado'].dt.date
 df['Hora'] = df['Inicio Estado'].dt.time
 
-# Convertir duración a segundos (si viene como timedelta)
+# Convertir duración a segundos (si viene como timedelta o string)
 if not np.issubdtype(df['Duración'].dtype, np.number):
-    df['Duración'] = pd.to_timedelta(df['Duración']).dt.total_seconds()
+    try:
+        df['Duración'] = pd.to_timedelta(df['Duración']).dt.total_seconds()
+    except Exception:
+        st.error("Error al convertir la columna 'Duration' a segundos.")
+        st.stop()
 
 # Definir horarios esperados por agente
 horarios_esperados = {
@@ -44,12 +58,16 @@ min_fecha = df['Fecha'].min()
 max_fecha = df['Fecha'].max()
 
 st.sidebar.header("Filtros")
-fecha_inicio, fecha_fin = st.sidebar.date_input(
+fechas = st.sidebar.date_input(
     "Rango de fechas",
     value=(min_fecha, max_fecha),
     min_value=min_fecha,
     max_value=max_fecha
 )
+if isinstance(fechas, tuple) and len(fechas) == 2:
+    fecha_inicio, fecha_fin = fechas
+else:
+    fecha_inicio = fecha_fin = fechas
 
 agentes_unicos = df['Agente'].unique().tolist()
 agentes_seleccionados = st.sidebar.multiselect(
@@ -71,10 +89,12 @@ if df_filtrado.empty:
 # Primer "Logged In" por día por agente en datos filtrados
 logged_in = df_filtrado[df_filtrado['Estado'].str.lower() == 'logged in']
 primer_logged = logged_in.sort_values(by='Inicio Estado').groupby(['Agente', 'Fecha']).first().reset_index()
-primer_logged['Retraso'] = primer_logged.apply(
-    lambda row: row['Hora'] > horarios_esperados.get(row['Agente'], time(8, 0)),
-    axis=1
-)
+
+def check_retraso(row):
+    esperado = horarios_esperados.get(row['Agente'], time(8, 0))
+    return row['Hora'] > esperado
+
+primer_logged['Retraso'] = primer_logged.apply(check_retraso, axis=1)
 
 # Contabilizar tiempo por estado en datos filtrados
 tiempo_por_estado = df_filtrado.groupby(['Agente', 'Fecha', 'Estado'])['Duración'].sum().reset_index()
@@ -93,8 +113,6 @@ resumen_retrasos.columns = ['Agente', 'Días con retraso']
 st.dataframe(resumen_retrasos)
 
 # Gráfico: tiempo total invertido por estado (suma total por agente)
-tiempo_estado_sum = tiempo_por_estado.groupby(['Estado'])['Duración'].sum().sort_values(ascending=False)
-
+tiempo_estado_sum = tiempo_por_estado.groupby('Estado')['Duración'].sum().sort_values(ascending=False)
 st.subheader("Tiempo total invertido por estado (segundos)")
 st.bar_chart(tiempo_estado_sum)
-
