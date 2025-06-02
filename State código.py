@@ -1,17 +1,14 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 
 st.set_page_config(page_title="Análisis de Estados de Agentes", layout="wide")
+
 st.title("📊 Análisis de Estados de Agentes")
 
+# Leer el archivo desde la misma carpeta
 archivo = "Estadosinfo.xlsx"
-try:
-    df = pd.read_excel(archivo)
-except FileNotFoundError:
-    st.error(f"No se encontró el archivo '{archivo}'. Por favor colócalo en la carpeta del proyecto.")
-    st.stop()
+df = pd.read_excel(archivo)
 
 # Normalizar nombres de columnas
 df.columns = df.columns.str.strip()
@@ -31,50 +28,43 @@ df = df.rename(columns={
     'Duration': 'Duración'
 })
 
-# Procesamiento de fechas y duraciones
-df['FechaHora'] = pd.to_datetime(df['FechaHora'], errors='coerce')
-df = df.dropna(subset=['FechaHora'])
+# Procesamiento de fechas y duración
+df['FechaHora'] = pd.to_datetime(df['FechaHora'])
 df['Fecha'] = df['FechaHora'].dt.date
 df['Hora'] = df['FechaHora'].dt.time
-
-df['Duración'] = pd.to_timedelta(df['Duración'], errors='coerce')
+df['Duración'] = pd.to_timedelta(df['Duración'])
 df['DuraciónHoras'] = df['Duración'].dt.total_seconds() / 3600
-df['DuraciónHoras'] = df['DuraciónHoras'].fillna(0)
 
-# FILTROS EN LA BARRA LATERAL
+# ----------- 🎯 Filtros en barra lateral -----------
 st.sidebar.header("📋 Filtros")
 
-# Filtro de fechas
+# Rango de fechas
 min_fecha = df['Fecha'].min()
 max_fecha = df['Fecha'].max()
 fecha_inicio, fecha_fin = st.sidebar.date_input(
-    "Selecciona el rango de fechas",
-    value=[min_fecha, max_fecha],
+    label="Selecciona el rango de fechas",
+    value=(min_fecha, max_fecha),
     min_value=min_fecha,
     max_value=max_fecha
 )
 
-# Filtro por agente
+# Agente
 agentes_unicos = sorted(df['Agente'].dropna().unique())
-agentes_seleccionados = st.sidebar.multiselect(
-    "Selecciona agente(s)",
-    options=agentes_unicos,
-    default=agentes_unicos
+agente_seleccionado = st.sidebar.selectbox(
+    "Selecciona un agente",
+    options=agentes_unicos
 )
 
 # Aplicar filtros
 df = df[
     (df['Fecha'] >= fecha_inicio) &
     (df['Fecha'] <= fecha_fin) &
-    (df['Agente'].isin(agentes_seleccionados))
+    (df['Agente'] == agente_seleccionado)
 ]
 
-# Verifica si hay datos después de aplicar filtros
-if df.empty:
-    st.warning("⚠️ No hay datos para los filtros seleccionados.")
-    st.stop()
+# ---------- 🔍 Análisis ----------
 
-# Calcular primer Logged In
+# Primer Logged In
 logged = df[df['Estado'] == 'Logged In'].copy()
 primer_logged = logged.sort_values(by='FechaHora').groupby(['Agente', 'Fecha']).first().reset_index()
 primer_logged['Hora Entrada'] = primer_logged['FechaHora'].dt.time
@@ -89,27 +79,23 @@ horarios = {
 
 def es_retraso(row):
     esperado = horarios.get(row['Agente'], 8)
-    if pd.isnull(row['FechaHora']):
-        return False
-    return row['FechaHora'].hour > esperado
+    return row['FechaHora'].hour >= esperado
 
-primer_logged['Retraso'] = primer_logged.apply(es_retraso, axis=1)
-primer_logged['Retraso'] = primer_logged['Retraso'].map({True: 'Sí', False: 'No'})
+if not primer_logged.empty:
+    primer_logged['Retraso'] = primer_logged.apply(es_retraso, axis=1)
+else:
+    primer_logged['Retraso'] = []
 
-# Tiempo por estado
+# Tiempo por estado por día
 tiempo_por_estado = df.groupby(['Agente', 'Fecha', 'Estado'])['DuraciónHoras'].sum().reset_index()
 tiempo_pivot = tiempo_por_estado.pivot_table(index=['Agente', 'Fecha'], columns='Estado', values='DuraciónHoras', fill_value=0).reset_index()
 
-# Tiempo total por agente
+# Resumen total por agente
 resumen_agente = df.groupby('Agente')['DuraciónHoras'].sum().reset_index(name='Total de Horas')
 resumen_agente = resumen_agente.sort_values(by='Total de Horas', ascending=False)
 
-# Motivos por duración
-tiempo_por_motivo = df.groupby('Motivo')['DuraciónHoras'].sum().reset_index()
-tiempo_por_motivo = tiempo_por_motivo[tiempo_por_motivo['Motivo'].notna()]
-tiempo_por_motivo = tiempo_por_motivo.sort_values(by='DuraciónHoras', ascending=False)
+# ---------- 📋 Mostrar Resultados ----------
 
-# Mostrar resultados
 st.subheader("📌 Resumen de tiempo total por agente")
 st.dataframe(resumen_agente, use_container_width=True)
 
@@ -119,51 +105,7 @@ st.dataframe(primer_logged[['Agente', 'Fecha', 'Hora Entrada', 'Retraso']], use_
 st.subheader("⏱️ Tiempo invertido por estado por día")
 st.dataframe(tiempo_pivot, use_container_width=True)
 
-# Visualizaciones
-st.subheader("📊 Visualizaciones")
-
-# Gráfico 1: Tiempo total por estado
-tiempo_estado_total = df.groupby('Estado')['DuraciónHoras'].sum().reset_index()
-
-titulo_grafico1 = '⏳ Tiempo total invertido por estado (horas)'
-if len(agentes_seleccionados) == 1:
-    titulo_grafico1 += f" - {agentes_seleccionados[0]}"
-
-fig1 = px.bar(
-    tiempo_estado_total,
-    x='Estado',
-    y='DuraciónHoras',
-    title=titulo_grafico1,
-    labels={'DuraciónHoras': 'Horas', 'Estado': 'Estado'},
-    text=tiempo_estado_total['DuraciónHoras'].round(2).astype(str)
-)
-fig1.update_traces(textposition='outside')
-st.plotly_chart(fig1, use_container_width=True)
-
-# Gráfico 2: Días con retraso por agente
-retrasos_por_agente = primer_logged.groupby('Agente')['Retraso'].apply(lambda x: (x == 'Sí').sum()).reset_index(name='Días con Retraso')
-
-fig2 = px.bar(
-    retrasos_por_agente,
-    x='Agente',
-    y='Días con Retraso',
-    title='⏰ Días con retraso por agente',
-    labels={'Días con Retraso': 'Cantidad de días', 'Agente': 'Agente'},
-    text=retrasos_por_agente['Días con Retraso'].astype(str)
-)
-fig2.update_traces(textposition='outside')
-st.plotly_chart(fig2, use_container_width=True)
-
-# Gráfico 3: Tiempo por motivo
-st.subheader("📋 Tiempo total por motivo de estado")
-fig3 = px.bar(
-    tiempo_por_motivo,
-    x='Motivo',
-    y='DuraciónHoras',
-    title='🔍 Tiempo total invertido por motivo',
-    labels={'DuraciónHoras': 'Horas', 'Motivo': 'Motivo'},
-    text=tiempo_por_motivo['DuraciónHoras'].round(2).astype(str)
-)
-fig3.update_layout(xaxis_tickangle=-45)
-fig3.update_traces(textposition='outside')
-st.plotly_chart(fig3, use_container_width=True)
+# ---------- 🎯 Extra: Motivos más frecuentes ----------
+st.subheader("📈 Distribución de motivos de estados")
+motivos = df.groupby(['Estado', 'Motivo'])['DuraciónHoras'].sum().reset_index()
+st.dataframe(motivos.sort_values(by='DuraciónHoras', ascending=False), use_container_width=True)
