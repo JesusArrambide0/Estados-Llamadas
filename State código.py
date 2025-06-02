@@ -8,9 +8,15 @@ st.set_page_config(layout="wide")
 
 st.title("📊 Panel de Análisis de Estados de Agentes")
 
-uploaded_file = st.file_uploader("Carga el archivo Excel", type=["xlsx"])
-if uploaded_file:
-    df = pd.read_excel(uploaded_file)
+archivo = "Estadosinfo.xlsx"
+try:
+    df = pd.read_excel(archivo)
+except FileNotFoundError:
+    st.error(f"No se encontró el archivo '{archivo}'. Por favor colócalo en la carpeta del proyecto.")
+    st.stop()
+except Exception as e:
+    st.error(f"Error al leer el archivo: {e}")
+    st.stop()
 
     df.columns = df.columns.str.strip()
     df = df.rename(columns={
