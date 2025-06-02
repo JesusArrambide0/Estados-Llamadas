@@ -7,7 +7,7 @@ st.set_page_config(page_title="Análisis de Estados de Agentes", layout="wide")
 st.title("📊 Análisis de Estados de Agentes")
 
 # Cargar datos
-archivo = "EstadosInfo.xlsx"
+archivo = "Estadosinfo.xlsx"
 df = pd.read_excel(archivo)
 df.columns = df.columns.str.strip()
 
