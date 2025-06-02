@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import io
 import plotly.express as px
 
 st.set_page_config(page_title="Análisis de Estados de Agentes", layout="wide")
@@ -121,18 +120,3 @@ fig2 = px.bar(
 )
 fig2.update_traces(textposition='outside')
 st.plotly_chart(fig2, use_container_width=True)
-
-# Botón para descargar Excel con resultados
-buffer = io.BytesIO()
-with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-    resumen_agente.to_excel(writer, index=False, sheet_name='Resumen Total')
-    primer_logged[['Agente', 'Fecha', 'Hora Entrada', 'Retraso']].to_excel(writer, index=False, sheet_name='Primer Logged In')
-    tiempo_pivot.to_excel(writer, index=False, sheet_name='Tiempo por Estado')
-    buffer.seek(0)
-
-st.download_button(
-    label="📥 Descargar resumen en Excel",
-    data=buffer,
-    file_name="Resumen_Estados_Agentes.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
