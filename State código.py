@@ -34,19 +34,16 @@ if len(rango_fechas) != 2:
     st.warning("Selecciona un rango válido de dos fechas.")
     st.stop()
 
-# Filtrar por fechas
+# Filtrar por fechas para definir agentes disponibles
 df_fecha = df[(df['Fecha'] >= rango_fechas[0]) & (df['Fecha'] <= rango_fechas[1])]
 
-# Sidebar: filtro agente basado en datos filtrados por fecha
-agentes = sorted(df_fecha['Agente'].dropna().unique())
+# Obtener lista de agentes para el filtro (sin filtrar por agente aún)
+agentes = sorted(df['Agente'].dropna().unique())
 
-if not agentes:
-    st.warning("No hay agentes con datos en el rango de fechas seleccionado.")
-    st.stop()
-
+# Selector de agente (bloxdpot para que sea desplegable con búsqueda)
 agente_seleccionado = st.sidebar.selectbox("Selecciona un agente", agentes)
 
-# Filtrar por agente
+# Filtrar por agente y fecha
 df_filtrado = df_fecha[df_fecha['Agente'] == agente_seleccionado]
 
 if df_filtrado.empty:
