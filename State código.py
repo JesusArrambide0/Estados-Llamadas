@@ -69,6 +69,11 @@ df = df[
     (df['Agente'].isin(agentes_seleccionados))
 ]
 
+# Verifica si hay datos después de aplicar filtros
+if df.empty:
+    st.warning("⚠️ No hay datos para los filtros seleccionados.")
+    st.stop()
+
 # Calcular primer Logged In
 logged = df[df['Estado'] == 'Logged In'].copy()
 primer_logged = logged.sort_values(by='FechaHora').groupby(['Agente', 'Fecha']).first().reset_index()
@@ -120,11 +125,15 @@ st.subheader("📊 Visualizaciones")
 # Gráfico 1: Tiempo total por estado
 tiempo_estado_total = df.groupby('Estado')['DuraciónHoras'].sum().reset_index()
 
+titulo_grafico1 = '⏳ Tiempo total invertido por estado (horas)'
+if len(agentes_seleccionados) == 1:
+    titulo_grafico1 += f" - {agentes_seleccionados[0]}"
+
 fig1 = px.bar(
     tiempo_estado_total,
     x='Estado',
     y='DuraciónHoras',
-    title='⏳ Tiempo total invertido por estado (horas)',
+    title=titulo_grafico1,
     labels={'DuraciónHoras': 'Horas', 'Estado': 'Estado'},
     text=tiempo_estado_total['DuraciónHoras'].round(2).astype(str)
 )
